@@ -23,6 +23,7 @@
 # if embeddings:
 #     print("Embeddings model loaded successfully!")
 from student_ingest import ingest_student_pdf, ingest_student_web
+from course_ingest import ingest_course_pdf
 import os
 
 from fastapi import FastAPI, UploadFile, File, HTTPException
@@ -66,6 +67,29 @@ def create_upload_link(link: str):
         return {"info": f"link '{link}' processed successfully", "details": result}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"An error occurred while processing the link: {str(e)}")
+
+
+@app.post("/uploadcourse/")
+def create_upload_course(file: UploadFile = File(...)):
+    if file.content_type != 'application/pdf':
+        raise HTTPException(status_code=400, detail="Invalid file type. Only PDF files are accepted.")
+    try:
+        """file_location = f"files/{file.filename}"
+        with open(file_location, "wb+") as file_object:
+            file_object.write(file.file.read())"""
+        # Call the ingest function to process and store the PDF content
+        #store the file as a temp file and pass the path to the ingest function
+        
+        # Ensure temp directory exists
+        os.makedirs("temp", exist_ok=True)
+        
+        temp_file_path = f"temp/{file.filename}"
+        with open(temp_file_path, "wb+") as temp_file:
+            temp_file.write(file.file.read())
+        result = ingest_course_pdf(temp_file_path)
+        return {"info": f"file '{file.filename}' processed successfully", "details": result}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"An error occurred while processing the file: {str(e)}")
 
 if __name__ == "__main__":
     import uvicorn

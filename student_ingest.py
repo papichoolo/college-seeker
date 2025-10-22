@@ -1,10 +1,11 @@
 # The backend python file which will use FastAPI to create the API endpoints
-
+import os
+from dotenv import load_dotenv
+load_dotenv(override=True)
 # from pymongo.mongo_client import MongoClient
 # from pymongo.server_api import ServerApi
 from langchain_community.document_loaders import PyPDFLoader
 from langchain_community.document_loaders import WebBaseLoader
-uri = "mongodb+srv://tmber:<password>@testcluster.wyfpg0v.mongodb.net/?retryWrites=true&w=majority&appName=testcluster"
 
 # # Create a new client and connect to the server
 # client = MongoClient(uri, server_api=ServerApi('1'))
@@ -15,7 +16,7 @@ uri = "mongodb+srv://tmber:<password>@testcluster.wyfpg0v.mongodb.net/?retryWrit
 #     print("Pinged your deployment. You successfully connected to MongoDB!")
 # except Exception as e:
 #     print(e)
-
+uri=os.getenv("MONGODB_URI")
 
 from langchain_huggingface import HuggingFaceEmbeddings
 

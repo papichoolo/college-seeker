@@ -3,7 +3,7 @@
 # from pymongo.mongo_client import MongoClient
 # from pymongo.server_api import ServerApi
 
-# uri = "mongodb+srv://tmber:<password>@testcluster.wyfpg0v.mongodb.net/?retryWrites=true&w=majority&appName=testcluster"
+# uri = "mongodb+srv://tmber:test123@testcluster.wyfpg0v.mongodb.net/?retryWrites=true&w=majority&appName=testcluster"
 
 # # Create a new client and connect to the server
 # client = MongoClient(uri, server_api=ServerApi('1'))
@@ -28,12 +28,8 @@ import os
 
 from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel
 
 app= FastAPI()
-
-class LinkRequest(BaseModel):
-    link: str
 
 @app.post("/uploadfile/")
 def create_upload_file(file: UploadFile = File(...)):

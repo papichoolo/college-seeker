@@ -1,247 +1,103 @@
-from langchain_community.document_loaders import PyPDFLoader
-from langchain_core.prompts import ChatPromptTemplate
-
-
+from pydantic import BaseModel, Field, ValidationError
+from typing import Annotated
+from bs4 import BeautifulSoup
+import re
+from langchain_core.documents import Document
+from langchain_text_splitters import RecursiveCharacterTextSplitter
+from langchain.chat_models import init_chat_model
+from langchain_tavily import TavilySearch
 from langchain_huggingface import HuggingFaceEmbeddings
-
-embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-mpnet-base-v2")
-from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_mongodb import MongoDBAtlasVectorSearch
 from pymongo import MongoClient
-from uuid import uuid4
+import os
 from dotenv import load_dotenv
 load_dotenv(override=True)
-from langchain import hub
 
-from typing import Optional
-
-from pydantic import BaseModel, Field
-from langchain_core.documents import Document
-from typing_extensions import List, Annotated, TypedDict
-
-# COURSE SCHEMA
-class CourseDetailsDict(TypedDict):
-    courseName: Annotated[str, "Course title as printed in the brochure."]
-    courseDuration: Annotated[int, "Nominal duration in years (integer)."]
-    courseCoreSubjects: Annotated[List[str], "List of mandatory/core subjects."]
-    courseElectives: Annotated[List[str], "List of elective subjects (empty if none listed)."]
-    courseSpecialisations: Annotated[List[str], "Tracks/streams/specialisations offered."]
-    coursePrereqs: Annotated[List[str], "Admission prerequisites and eligibility points."]
+def bs4_extractor(html: str) -> str:
+    soup = BeautifulSoup(html, "lxml")
+    text = soup.get_text(separator="\n")
+    return re.sub(r"\n\s*\n+", "\n\n", text).strip()
 
 
-class InstituteSchemaRequired(TypedDict):
-    institution: Annotated[str, "Official name of the institution."]
-    degrees: Annotated[List[str], "All degrees/programs mentioned in the brochure."]
-    courseDetails: Annotated[CourseDetailsDict, "Primary course block captured from the brochure."]
-    features: Annotated[str, "One-paragraph summary of facilities, curriculum design, and distinctive features."]
+client=MongoClient(os.getenv("MONGODB_URI"))
+db="college_seeker"
+collection_name="college_data_raw"
+collection=client[db][collection_name]
+embeddings=HuggingFaceEmbeddings(model_name="sentence-transformers/all-mpnet-base-v2")
+vector_store= MongoDBAtlasVectorSearch(
+        collection=collection,
+        embedding=embeddings,
+        index_name="college-index-vectorstores",
+    )
+
+llm = init_chat_model("google_genai:gemini-2.5-flash-lite")
+from langchain.agents import create_agent
+
+from langchain_community.document_loaders import RecursiveUrlLoader
+
+#non functional function for now
+def ingest_college_data():
+    
+    loader=RecursiveUrlLoader("https://www.tcetmumbai.in/deptCompEngineering-home.html",extractor=bs4_extractor,prevent_outside=True)
+
+    documents = loader.load()
 
 
-class InstituteSchemaOptional(TypedDict, total=False):
-    placementRecords: Annotated[str, "Notable placement statistics, recruiters, or salary figures if provided."]
-    awards: Annotated[str, "Awards, accreditations, and notable recognitions if provided."]
+    # print("Documents loaded:", len(documents))
+    # for doc in documents:
+    #     print("Docs Metadata:", doc.metadata)
+    #     print("Document content:", doc.page_content[:200])  # Print first 200 characters of each document
+
+    splitter=RecursiveCharacterTextSplitter(chunk_size=400, chunk_overlap=80)
+    docs= splitter.split_documents(documents)
+    print("Documents after splitting:", len(docs))
+
+    
+    vector_store.create_vector_search_index(dimensions=768)
+
+    vector_store.add_documents(docs)
 
 
-class InstituteSchema(InstituteSchemaRequired, InstituteSchemaOptional):
-    """Final schema: required + optional fields combined."""
 
+# results = vector_store.similarity_search(
+#     "B.Tech in Computer Engineering details",
+# )
+# print(results)
 
-class State(TypedDict):
-    question: str
-    context: List[Document]
-    answer: str
-# N.B. for non-US LangSmith endpoints, you may need to specify
-# api_url="https://api.smith.langchain.com" in hub.pull.
-system_message="""
-You are an expert educational consultant specializing in analyzing college and university brochures. Your task is to extract structured information about academic programs from brochure content.
-Convert the ENTIRE DOCUMENT to a JSON object that strictly adheres to the following schema.
+from langchain.agents.middleware import dynamic_prompt, ModelRequest
 
-Schema name: InstituteSchema
-
-Field hierarchy:
-- institution: str — Official name of the institution.
-- degrees: List[str] — All Major Degrees Mentioned in the Brochure.
-- courseDetails: object (MANDATORY CANNOT BE NULL) {{
-    - courseName: str — Course/Program title as printed in the brochure.
-    - courseDuration: int — Nominal duration in years (integer).
-    - courseCoreSubjects: List[str] — List of mandatory/core subjects.
-    - courseElectives: List[str] — List of elective subjects.
-    - courseSpecialisations: List[str] — Tracks/streams/specialisations offered.
-    - coursePrereqs: List[str] — Admission prerequisites and eligibility points.
-  }}
-- features: str — One-paragraph summary of facilities, curriculum design, and distinctive features.
-- placementRecords: str (optional) — Notable placement statistics, recruiters, or salary figures.
-- awards: str (optional) — Awards, accreditations, and notable recognitions.
-
-Strict output rules:
-1. Output must be **valid JSON**, not markdown or prose.
-2. courseDetails is MANDATORY and CANNOT BE NULL. It explains all Program details.
-3. Keys and nesting must match the schema **exactly**.
-4. Do not add or rename any fields.
-5. Use empty lists for missing list fields; omit optional string fields if absent.
-6. Summarize faithfully — no hallucinated information or invented data.
-7. Represent multi-program documents by using the primary engineering or flagship course as courseDetails.
-7. courseDuration must be an integer (e.g., 4 for B.Tech, 2 for M.Tech); if unspecified, use 0.
-8. Do not wrap, comment, or explain — return the pure JSON object only.
-
-One-shot reference example (follow this structure precisely):
-
-{{
-  "institution": "Indian Institute of Technology Hyderabad",
-  "degrees": [
-    "B.Tech",
-    "M.Tech",
-    "Ph.D."
-  ],
-  "courseDetails": {{
-    "courseName": "B.Tech in Computer Science and Engineering",
-    "courseDuration": 4,
-    "courseCoreSubjects": [
-      "Data Structures and Algorithms",
-      "Computer Networks",
-      "Operating Systems",
-      "DBMS",
-      "Theory of Computation"
-    ],
-    "courseElectives": [
-      "Artificial Intelligence",
-      "Machine Learning",
-      "Cloud Computing"
-    ],
-    "courseSpecialisations": [
-      "AI/ML",
-      "Data Science",
-      "Systems"
-    ],
-    "coursePrereqs": [
-      "JEE Advanced qualification with Physics, Chemistry, Mathematics"
-    ]
-  }},
-  "features": "Leading CSE department with cutting-edge labs, interdisciplinary research, and strong industry collaborations.",
-  "placementRecords": "High placement rates with top recruiters such as Google, Microsoft, Amazon, and TCS.",
-  "awards": "Faculty and students received multiple national and international research awards."
-}}
-
-Now, apply the schema and style exactly as above to the following document text.
-Return only the pure JSON object.
-
-"""
-context=""
-user_prompt=""
-prompt = ChatPromptTemplate.from_messages(
-    [
-        ("system", system_message),
-        ("user", "Here is the document content:\n\n{context}\n\nNow: {question}")
-    ],
+tavily_search_tool = TavilySearch(
+    max_results=5,
+    topic="general",
 )
 
-import getpass
-import os
+@dynamic_prompt
+def prompt_with_context(request: ModelRequest) -> str:
+    """Inject context into state messages."""
+    last_query = request.state["messages"][-1].text
+    retrieved_docs = vector_store.similarity_search(last_query)
 
-if not os.environ.get("GOOGLE_API_KEY"):
-  os.environ["GOOGLE_API_KEY"] = getpass.getpass("Enter API key for Google Gemini: ")
+    docs_content = "\n\n".join(doc.page_content for doc in retrieved_docs)
 
-from langchain.chat_models import init_chat_model
+    system_message = system_message = (
+        "You are College‑Seeker Assistant. Use ONLY the retrieved documents below as authoritative context.\n"
+        "- If the answer is not present in the context, reply: \"I don't know.\" Do not hallucinate.\n"
+        "- Prefer official college pages, admissions pages, government / accreditation sources and cite each factual claim with the source URL.\n"
+        "- Return a concise direct answer (1–3 sentences). Then, when helpful, include a short 'Details' section with bullets for: Program, Degree, Duration, Fees, Eligibility, Important links, Contact.\n"
+        "- When the caller requests machine-readable output, return JSON with keys: title, answer, details, sources (list of {title, url}), confidence (0.0-1.0).\n"
+        "- Always include a 'sources' list containing the page title and URL for each cited statement.\n\n"
+        f"{docs_content}"
+    )
 
-llm = init_chat_model("gemini-2.5-flash-lite", model_provider="google_genai")
-
-structured_llm= llm.with_structured_output(InstituteSchema)
-
-"""example_messages = query_prompt_template.invoke(
-    {"context": context, "system": system_message, "user": user_prompt}
-).to_messages()
-
-assert len(example_messages) == 1
-print(example_messages[0].content)"""
-
-def retrieve(state: State):
-    retrieved_docs = vector_store.similarity_search(state["question"])
-    return {"context": retrieved_docs}
+    return system_message
 
 
-def generate(state: State):
-    docs_content = "\n\n".join(doc.page_content for doc in state["context"])
-    messages = prompt.invoke({"context": docs_content, "question": state["question"]})
-    response = structured_llm.invoke(messages)
-    return {"answer": response}
+agent = create_agent(llm, tools=[tavily_search_tool], middleware=[prompt_with_context])
 
-from langgraph.graph import START, StateGraph
+user_input = "I have completed my 12th with PCM and want to pursue a B.Tech in Computer Engineering. Can you suggest some good colleges in Mumbai along with their admission criteria, fees, and important links?"
 
-graph_builder = StateGraph(State).add_sequence([retrieve, generate])
-graph_builder.add_edge(START, "retrieve")
-graph = graph_builder.compile()
-uri=os.getenv("MONGODB_URI")
-client = MongoClient(uri)
-DB_NAME = "college_seeker"
-COLLECTION_NAME = "rawcourse_collection"
-ATLAS_VECTOR_SEARCH_INDEX_NAME = "rawcourse-index-vectorstores"
-MONGODB_COLLECTION = client[DB_NAME][COLLECTION_NAME]
-vector_store = MongoDBAtlasVectorSearch(
-            collection=MONGODB_COLLECTION,
-            embedding=embeddings,
-            index_name=ATLAS_VECTOR_SEARCH_INDEX_NAME,
-            relevance_score_fn="cosine",
-        )
-
-def ingest_course_pdf(file_path):
-    try:
-        # Load the PDF file
-        loader = PyPDFLoader(file_path)
-        documents = loader.load()
-        
-        # Split the documents into smaller chunks
-        text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
-        docs = text_splitter.split_documents(documents)
-        
-        # Initialize MongoDB client and vector store
-        
-        
-        # Create vector search index on the collection
-        vector_store.create_vector_search_index(dimensions=768)
-        
-        # Add documents to the vector store
-        vector_store.add_documents(docs, ids=[str(uuid4()) for _ in range(len(docs))])
-        
-        return {"status": "success", "message": f"Processed {len(docs)} document chunks."}
-    except Exception as e:
-        return {"status": "error", "message": str(e)}
-    
-    
-def query_course_pdf() -> Optional[InstituteSchema]:
-    result=graph.invoke({
-  "question": """
-Convert the ENTIRE DOCUMENT to a JSON object that strictly adheres to the following schema:
-
-Schema name: InstituteSchema
-
-Field hierarchy:
-- institution: str — Official name of the institution.
-- degrees: List[str] — All degrees/programs mentioned in the brochure.
-- courseDetails: object {
-    - courseName: str — Course title as printed in the brochure.
-    - courseDuration: int — Nominal duration in years (integer).
-    - courseCoreSubjects: List[str] — List of mandatory/core subjects.
-    - courseElectives: List[str] — List of elective subjects.
-    - courseSpecialisations: List[str] — Tracks/streams/specialisations offered.
-    - coursePrereqs: List[str] — Admission prerequisites and eligibility points.
-  }
-- features: str — One-paragraph summary of facilities, curriculum design, and distinctive features.
-- placementRecords: str (optional) — Notable placement statistics, recruiters, or salary figures.
-- awards: str (optional) — Awards, accreditations, and notable recognitions.
-
-Strict output rules:
-1. Output must be **valid JSON**, not markdown or prose.
-2. Keys and nesting must match the schema **exactly**.
-3. Do not add or rename any fields.
-4. Use empty lists for missing list fields; omit optional string fields if absent.
-5. Summarize faithfully — no hallucinated information or invented data.
-6. Represent multi-program documents by using the primary engineering or flagship course as courseDetails.
-7. courseDuration must be an integer (e.g., 4 for B.Tech, 2 for M.Tech); if unspecified, use 0.
-8. Do not wrap, comment, or explain — return the pure JSON object only.
-"""
-})
-    return result['answer']
-
-
-
-
-#print(query_course_pdf())
+for step in agent.stream(
+    {"messages": user_input},
+    stream_mode="values",
+):
+    step["messages"][-1].pretty_print()

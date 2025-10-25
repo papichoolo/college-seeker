@@ -3,3 +3,6 @@ data/
 .env
 venv/
 __pycache__/
+*.ipynb
+*.json
+*.pdf

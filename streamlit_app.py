@@ -98,7 +98,7 @@ def main():
         
         page = st.radio(
             "Choose a step:",
-            ["1️⃣ Upload Profile", "2️⃣ Get Recommendations", "3️⃣ About"],
+            ["1️⃣ Upload Profile", "2️⃣ Get Recommendations", "3️⃣ About", "Generated Recommendations"],
             index=0 if not st.session_state.profile_uploaded else 1
         )
         
@@ -122,6 +122,8 @@ def main():
         show_upload_page()
     elif page == "2️⃣ Get Recommendations":
         show_recommendations_page()
+    elif page== "Generated Recommendations" and st.session_state.recommendations:
+        display_recommendations(st.session_state.recommendations)
     else:
         show_about_page()
 
@@ -217,8 +219,9 @@ def show_recommendations_page():
             value=existing_name,
             key="recommendations_name",
             placeholder="e.g., Sourav Dutta",
-            help="Enter the name associated with your uploaded profile"
+            #help="Enter the name associated with your uploaded profile"
         )
+        #can be a source of SQL Injection attacks, TODO Implement better checks for security
         provided_name = name_input.strip()
         previous_name = existing_name.strip() if isinstance(existing_name, str) else ""
 
@@ -261,8 +264,8 @@ def show_recommendations_page():
     
     # Display recommendations if available
     if st.session_state.recommendations:
-        st.markdown("---")
-        display_recommendations(st.session_state.recommendations)
+        st.success("Recommendations are available for you to view in the 'Generated Recommendations' Tab")
+        #display_recommendations(st.session_state.recommendations)
 
 def display_recommendations(recommendations):
     """Display the recommendations in a nice format"""

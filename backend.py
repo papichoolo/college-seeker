@@ -54,7 +54,7 @@ class CourseQueryRequest(BaseModel):
 class IntegratedFlowRequest(BaseModel):
     student_name: str = Field(..., description="Student's full name")
     question: str = Field(
-        default="What type of College Should I apply to with this information?",
+        default="Answer with which Degree, Course Specialization to consider keeping in mind my Academic, Co-curricular and Extracurricular Profile.",
         description="Question to ask the student analysis agent"
     )
 

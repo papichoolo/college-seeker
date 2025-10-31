@@ -84,7 +84,7 @@ def prompt_with_context(request: ModelRequest) -> str:
         "- For tool calling and in General keep in mind to keep an Indian Context\n"
         "- Prefer official college pages, admissions pages, government / accreditation sources and cite each factual claim with the source URL.\n"
         "- Return a concise direct answer (1–3 sentences). Then, when helpful, include a short 'Details' section with bullets for: Program, Degree, Duration, Fees, Eligibility, Important links, Contact.\n"
-        "PLEASE FETCH DATA FROM THE RETRIEVED DOCUMENTS FIRST. THIS IS MANDATORY."
+        "PLEASE FETCH DATA FROM THE RETRIEVED DOCUMENTS FIRST. THIS IS A MAJOR PRIORITY. You can also user Web Search to provide more context from the retrieved information."
         "\n\n"
         f"{docs_content}"
     )

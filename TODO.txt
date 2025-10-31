@@ -1,0 +1,35 @@
+1. Backend Side (DB, Business Logic and API Architechture):
+- Vector Index has too much RAW/Unstructured Data 
+What to do? Convert this into a semi-structured database with actual schema. 
+
+VECTOR DB -> NOSQL (MONOGO) DATABASE (COLLECTION NAME: COURSES)
+TOPICS SURROUNDING THE SOLUTION
+FULL-TEXT SEARCH, HYBRID-SEARCH
+
+- Adding Website/Portfolio/Social Media Integration for Student Information.
+WHAT TO DO?
+Look into better Webscraping/Browser Automation Pipeline 
+ Selenium
+
+
+ - Improve Similarity Search by Allowing Metadata Filtering.
+ WHAT TO DO?
+ Improve existing VECTORDB Schema by adding metadata about source/relatedStudent Info.
+ To fetch the relevant docs perform a simple query instead of Vector Similarity Search.
+
+
+ 2. FRONT-END/LLM Presentation Changes
+ - Issue: Recommendations do not show up in a list manner.
+    - Why: (COLLECTION NAME: COURSES) IS NOT IMPLEMENTED. This means that we dont have a database of courses. We only RAW UNSTRUCTED DATA.
+    - WHAT TO DO? FIGURE OUT THE BACKEND PROBLEM 1 and then allow a Re-ranker list of courses appropriate for the student. 
+    This re-ranking algorithm will take in Student metadata, Student profile and will be using technique like, Hybrid Search.
+
+ - Citations/Sources of LLM output
+ WHAT TO DO: PROMPT THE LLM IN OUTPUT TO PROVIDE Sources. 
+ You could do this programatically or just allow the LLM to point out Citations. 
+
+
+ 3. Fullstack Change 
+ Allow the creation of User Accounts/Profiles
+ Store Persistent User Information Like Profiles/Resumes/ Recommendation
+

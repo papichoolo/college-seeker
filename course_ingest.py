@@ -103,11 +103,45 @@ def process_course_query(query: str):
     Returns:
         The final agent response
     """
-    response= agent.invoke(
-        {"messages": query},
+    if not query or not query.strip():
+        raise ValueError("Course query cannot be empty.")
+
+    response = agent.invoke(
+        {"messages": [{"role": "user", "content": query}]}
     )
-    ai_message = response["messages"][-1]
-    return ai_message.content[0].get("text")
+
+    messages = response.get("messages", [])
+    if not messages:
+        raise RuntimeError("Agent returned an empty response.")
+
+    ai_message = messages[-1]
+    # LangChain returns AIMessage objects that may carry string or chunked structured content.
+    if hasattr(ai_message, "content"):
+        content = ai_message.content
+        if isinstance(content, list):
+            # Flatten text chunks coming from models that return structured content.
+            text_parts = []
+            for chunk in content:
+                if isinstance(chunk, str):
+                    text_parts.append(chunk)
+                elif isinstance(chunk, dict):
+                    text_parts.append(chunk.get("text", ""))
+            return "\n".join(part for part in text_parts if part)
+        if isinstance(content, str):
+            return content
+    if isinstance(ai_message, dict):
+        content = ai_message.get("content", "")
+        if isinstance(content, list):
+            text_parts = []
+            for chunk in content:
+                if isinstance(chunk, str):
+                    text_parts.append(chunk)
+                elif isinstance(chunk, dict):
+                    text_parts.append(chunk.get("text", ""))
+            return "\n".join(part for part in text_parts if part)
+        return str(content)
+    return str(ai_message)
+    
     
 if __name__ == "__main__":
     # Default query if running standalone

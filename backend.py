@@ -216,6 +216,7 @@ async def integrated_analysis_and_recommendation(request: IntegratedFlowRequest)
         }
     
     except Exception as e:
+        print(e)
         raise HTTPException(status_code=500, detail=f"Error in integrated flow: {str(e)}")
 
 

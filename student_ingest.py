@@ -171,8 +171,9 @@ def prompt_with_context(request: ModelRequest) -> str:
     docs_content = "\n\n".join(doc.page_content for doc in retrieved_docs)
 
     system_message = (
-        "You are an expert counselor who is tasked to classify and analyze student profiles based on their academic and extracurricular information provided below. "
-        "Use the following context to answer in the student's own perspective their question in no more than a sentence:\n\n"
+        "You are an expert counselor reviewing the academic and extracurricular information below. "
+        "Respond in the student's own voice with a single concise sentence that clearly states the degree type and the subject/discipline the student should pursue. "
+        "If the context is insufficient to recommend both, briefly say what extra information is needed instead of guessing.\n\n"
         f"{docs_content}"
     )
 
@@ -193,7 +194,29 @@ def make_student_analysis(query: dict) -> str:
     response = agent.invoke(input=query)
     # Extract the AI message from the response
     ai_message = response["messages"][-1]
-    return ai_message.content
+    content = getattr(ai_message, "content", "")
+    if isinstance(content, list):
+        text_parts = []
+        for chunk in content:
+            if isinstance(chunk, str):
+                text_parts.append(chunk)
+            elif isinstance(chunk, dict):
+                text_parts.append(chunk.get("text", ""))
+        return "\n".join(part for part in text_parts if part)
+    if isinstance(content, str):
+        return content
+    if isinstance(ai_message, dict):
+        chunk = ai_message.get("content", "")
+        if isinstance(chunk, list):
+            text_parts = []
+            for item in chunk:
+                if isinstance(item, str):
+                    text_parts.append(item)
+                elif isinstance(item, dict):
+                    text_parts.append(item.get("text", ""))
+            return "\n".join(part for part in text_parts if part)
+        return str(chunk)
+    return str(ai_message)
 
 
 # Example usage with student info in the state

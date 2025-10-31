@@ -5,7 +5,10 @@ load_dotenv(override=True)
 # from pymongo.mongo_client import MongoClient
 # from pymongo.server_api import ServerApi
 from langchain_community.document_loaders import PyPDFLoader
+from langchain.chat_models import init_chat_model
 from langchain_community.document_loaders import WebBaseLoader
+from langchain.agents import AgentState
+from langchain.agents.middleware import dynamic_prompt, ModelRequest
 
 # # Create a new client and connect to the server
 # client = MongoClient(uri, server_api=ServerApi('1'))
@@ -16,6 +19,9 @@ from langchain_community.document_loaders import WebBaseLoader
 #     print("Pinged your deployment. You successfully connected to MongoDB!")
 # except Exception as e:
 #     print(e)
+class CustomState(AgentState):
+    student_info: dict
+    
 uri=os.getenv("MONGODB_URI")
 
 from langchain_huggingface import HuggingFaceEmbeddings
@@ -24,7 +30,7 @@ embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-mpnet-b
 
 # if embeddings:
 #     print("Embeddings model loaded successfully!")
-from langchain.text_splitter import RecursiveCharacterTextSplitter
+from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_mongodb import MongoDBAtlasVectorSearch
 from pymongo import MongoClient
 from uuid import uuid4
@@ -35,6 +41,7 @@ client = MongoClient(uri)
 DB_NAME = "college_seeker"
 COLLECTION_NAME = "student_collection"
 ATLAS_VECTOR_SEARCH_INDEX_NAME = "student-index-vectorstores"
+from langchain.agents import create_agent
 
 MONGODB_COLLECTION = client[DB_NAME][COLLECTION_NAME]
 
@@ -48,7 +55,7 @@ vector_store = MongoDBAtlasVectorSearch(
 # Create vector search index on the collection
 # Since we are using the default OpenAI embedding model (ada-v2) we need to specify the dimensions as 1536
 vector_store.create_vector_search_index(dimensions=768)
-
+llm = init_chat_model("google_genai:gemini-2.5-flash-lite")
 
 # from uuid import uuid4
 
@@ -147,3 +154,53 @@ def ingest_student_web(url):
     uuids = [str(uuid4()) for _ in range(len(docs))]
     vector_store.add_documents(documents=docs, ids=uuids)
     return f"Successfully ingested {url} with {len(docs)} chunks"
+
+@dynamic_prompt
+def prompt_with_context(request: ModelRequest) -> str:
+    """Inject context into state messages."""
+    # Extract the student info from the state
+    student_info = request.state.get("student_info", {})
+    student_name = student_info.get("name", "student")
+    
+    # Use the student name to search for their profile
+    search_query = f"{student_name}'s complete profile"
+    
+    # Perform similarity search based on the student's name
+    retrieved_docs = vector_store.similarity_search(search_query)
+
+    docs_content = "\n\n".join(doc.page_content for doc in retrieved_docs)
+
+    system_message = (
+        "You are an expert counselor who is tasked to classify and analyze student profiles based on their academic and extracurricular information provided below. "
+        "Use the following context to answer in the student's own perspective their question in no more than a sentence:\n\n"
+        f"{docs_content}"
+    )
+
+    return system_message
+
+llm=init_chat_model("google_genai:gemini-2.5-flash")
+agent= create_agent(llm, middleware=[prompt_with_context], state_schema=CustomState)
+
+def make_student_analysis(query: dict) -> str:
+    """Function to analyze student profile based on the query.
+    
+    Args:
+        query: Dictionary containing messages and student_info with student details
+    
+    Returns:
+        The AI message content as a string
+    """
+    response = agent.invoke(input=query)
+    # Extract the AI message from the response
+    ai_message = response["messages"][-1]
+    return ai_message.content
+
+
+# Example usage with student info in the state
+if __name__ == "__main__":
+    student_query_result = make_student_analysis(
+        {"messages": [{"role": "user", "content": "What type of College Should I apply to with this information?"}],
+        "student_info": {"name": "Sourav Dutta"}}
+    )
+    print("Student Analysis Output:")
+    print(student_query_result)

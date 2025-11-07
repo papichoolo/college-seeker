@@ -21,7 +21,7 @@ def bs4_extractor(html: str) -> str:
 
 client=MongoClient(os.getenv("MONGODB_URI"))
 db="college_seeker"
-collection_name="college_data_raw"
+collection_name="course_vectors"
 collection=client[db][collection_name]
 embeddings=HuggingFaceEmbeddings(model_name="sentence-transformers/all-mpnet-base-v2")
 vector_store= MongoDBAtlasVectorSearch(

@@ -23,7 +23,7 @@
 # if embeddings:
 #     print("Embeddings model loaded successfully!")
 from student_ingest import ingest_student_pdf, ingest_student_web, make_student_analysis
-from course_ingest import ingest_college_data, process_course_query
+from course_ingest import ingest_college_data, process_course_query, get_reranked_courses
 import os
 
 from fastapi import FastAPI, UploadFile, File, HTTPException
@@ -173,10 +173,12 @@ async def get_course_recommendations(request: CourseQueryRequest):
     try:
         # Get course recommendations
         recommendations = process_course_query(request.query)
-        
+        course_hits = get_reranked_courses(request.query, limit=6)
+
         return {
             "query": request.query,
-            "recommendations": recommendations
+            "recommendations": recommendations,
+            "course_hits": course_hits,
         }
     
     except Exception as e:
@@ -207,12 +209,15 @@ async def integrated_analysis_and_recommendation(request: IntegratedFlowRequest)
         
         # Step 2: Use student analysis as input for course recommendations
         course_recommendations = process_course_query(student_analysis)
-        
+        #Reranking algo
+        course_hits = get_reranked_courses(student_analysis, limit=6)
+
         return {
             "student_name": request.student_name,
             "question": request.question,
             "student_analysis": student_analysis,
-            "course_recommendations": course_recommendations
+            "course_recommendations": course_recommendations,
+            "course_hits": course_hits,
         }
     
     except Exception as e:

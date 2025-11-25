@@ -9,6 +9,8 @@ import trafilatura
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_mongodb import MongoDBAtlasVectorSearch
 from langchain_core.documents import Document
+from langchain_community.document_compressors import FlashrankRerank
+from langchain_classic.retrievers import ContextualCompressionRetriever
 from langchain.agents.middleware import dynamic_prompt, ModelRequest
 from test_chain import build_extractor, CourseSchema
 from pydantic import ValidationError
@@ -32,6 +34,20 @@ vs = MongoDBAtlasVectorSearch(
     collection=course_vectors,
     embedding=embeddings,
     index_name=VECTOR_INDEX_NAME,
+)
+VECTOR_QUERY_K = int(os.getenv("VECTOR_QUERY_K", "12"))
+RERANK_TOP_N = int(os.getenv("RERANK_TOP_N", "4"))
+RERANK_MODEL = os.getenv("RERANK_MODEL", "ms-marco-MultiBERT-L-12")
+vector_retriever = vs.as_retriever(search_kwargs={"k": VECTOR_QUERY_K})
+# Cross-encoder reranker recommended in the LangChain contextual compression docs.
+flashrank_compressor = FlashrankRerank(
+    top_n=RERANK_TOP_N,
+    model=RERANK_MODEL,
+    prefix_metadata="rerank_",
+)
+compression_retriever = ContextualCompressionRetriever(
+    base_compressor=flashrank_compressor,
+    base_retriever=vector_retriever,
 )
 
 def bs4_extractor(html: str) -> str:
@@ -192,10 +208,19 @@ def ingest_root(url: str, max_depth: int = 1):
     @dynamic_prompt
     def prompt_with_context(request: ModelRequest) -> str:
         """Inject context into state messages."""
-        last_query = request.state["messages"][-1].text
-        retrieved_docs = vs.similarity_search(last_query)
+        last_message = request.state["messages"][-1]
+        last_query = getattr(last_message, "text", None) or getattr(last_message, "content", None)
+        if isinstance(last_message, dict):
+            last_query = last_message.get("content") or last_message.get("text")
+        if not last_query:
+            last_query = str(last_message)
 
-        docs_content = "\n\n".join(doc.page_content for doc in retrieved_docs)
+        context_docs = compression_retriever.invoke(last_query) if last_query else []
+
+        docs_content = "\n\n".join(
+            f"[{doc.metadata.get('source') or doc.metadata.get('url') or 'unknown'}] {doc.page_content}"
+            for doc in context_docs
+        )
 
         system_message = system_message = (
             "You are College‑Seeker Assistant. Use ONLY the retrieved documents below as authoritative context.\n"

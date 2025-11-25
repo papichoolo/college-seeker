@@ -4,7 +4,6 @@ from dotenv import load_dotenv
 load_dotenv(override=True)
 from typing import List, Optional
 from langchain.chat_models import init_chat_model
-from langchain_core.prompts import ChatPromptTemplate
 from langchain_tavily import TavilySearch
 from langchain.agents import create_agent
 from pydantic import BaseModel, Field  # safe for LC v1
@@ -41,26 +40,29 @@ tavily_search_tool = TavilySearch(
     topic="general",
 )
 
-def build_extractor(prompt_fn,model_name: str = "google_genai:gemini-2.5-flash") -> RunnableSerializable:
-    llm = init_chat_model(model_name)  # unified init in LC v1
-    # Ask LLM to ONLY use provided text
-    # prompt = ChatPromptTemplate.from_messages([
-    #     ("system",
-    #      "You extract structured course data from web page text. "
-    #      "Use ONLY the provided page_text—no outside knowledge. "
-    #      "If a field is missing, return null. Normalize Indian fees to absolute INR."),
-    #     ("human",
-    #      "URL: {url}\n\n"
-    #      "PAGE_TEXT (may be truncated or noisy):\n{page_text}\n\n"
-    #      #"WEB_RESULTS: {web_results}"
-    #      "Return the result strictly as the provided schema.")
-    # ])
-    structured_llm = llm.with_structured_output(CourseSchema)
-    agent = create_agent(structured_llm, tools=[tavily_search_tool], middleware=[prompt_fn])
-    return agent
-    
-    # llm.bind_tools(tavily_search_tool)
-    
-    # # LC v1 structured outputs
-    # return prompt | structured_llm 
 
+def build_extractor(
+    prompt_fn,
+    model_name: str = "google_genai:gemini-2.5-flash",
+) -> RunnableSerializable:
+    """
+    Build an agent that can call Tavily but always responds with CourseSchema data.
+
+    The base chat model stays unwrapped so the compiler can still decide when to
+    issue tool calls; schema enforcement now comes from `response_format`.
+    """
+    llm = init_chat_model(model_name)
+    middleware = [prompt_fn] if prompt_fn is not None else []
+    system_prompt = (
+        "You extract structured course information. "
+        "Use ONLY provided context (retrieved passages, user text, tool outputs). "
+        "If a field is unknown, return null and cite the source URL."
+    )
+    agent = create_agent(
+        model=llm,
+        tools=[tavily_search_tool],
+        system_prompt=system_prompt,
+        middleware=middleware,
+        response_format=CourseSchema,
+    )
+    return agent

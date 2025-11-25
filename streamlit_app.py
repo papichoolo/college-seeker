@@ -8,12 +8,14 @@ import re
 from datetime import timedelta
 from pathlib import Path
 from dotenv import load_dotenv
+
 load_dotenv(override=True)
 
 import pandas as pd
 import requests
 import streamlit as st
 from pymongo import MongoClient
+from course_ingest import get_reranked_courses
 
 # =========================
 # API / Page Configuration
@@ -81,6 +83,34 @@ def get_recommendations(student_name, question=None):
     except requests.exceptions.RequestException as e:
         st.error(f"Error getting recommendations: {str(e)}")
         return None
+
+
+def render_course_hits(course_hits: list[dict]):
+    """Render reranked course hits returned by the compression retriever."""
+    if not course_hits:
+        st.info("No AI-ranked course matches yet.")
+        return
+
+    df = pd.DataFrame(
+        [
+            {
+                "Course ID": hit.get("course_id"),
+                "Score": round(hit.get("score", 0.0), 3) if hit.get("score") is not None else None,
+                "Snippet": hit.get("snippet"),
+                "URL": hit.get("url"),
+            }
+            for hit in course_hits
+        ]
+    )
+    st.dataframe(
+        df,
+        use_container_width=True,
+        hide_index=True,
+        column_config={
+            "URL": st.column_config.LinkColumn("URL", display_text="Open"),
+            "Snippet": st.column_config.TextColumn("Snippet", width="large"),
+        },
+    )
 
 
 # =========================
@@ -401,6 +431,11 @@ def display_recommendations(recommendations: dict):
     course_recs = recommendations.get('course_recommendations', 'No recommendations available')
     st.success(course_recs)
 
+    course_hits = recommendations.get('course_hits') or []
+    if course_hits:
+        st.markdown("#### AI-ranked matches from knowledge base")
+        render_course_hits(course_hits)
+
     # Actions
     st.markdown("---")
     col1, col2, col3 = st.columns([1, 1, 1])
@@ -443,6 +478,30 @@ def show_courses_page():
     """Browse courses stored in MongoDB -> college_seeker.course_vectors"""
     st.header("📚 Browse Courses (MongoDB)")
     st.caption("Data source: `college_seeker.course_vectors`")
+
+    if "ai_course_hits" not in st.session_state:
+        st.session_state.ai_course_hits = None
+
+    with st.expander("AI-ranked course finder (RAG)", expanded=False):
+        rag_query = st.text_area(
+            "Describe the kind of program you're looking for",
+            placeholder="Eg. B.Tech AI program in India with low fees and AICTE approval",
+            key="rag_query_text",
+        ).strip()
+        rag_limit = st.slider("Number of top matches", min_value=1, max_value=10, value=5, key="rag_limit_slider")
+        cols = st.columns([1, 1])
+        with cols[0]:
+            if st.button("Find AI-ranked courses", key="rag_fetch_btn", use_container_width=True):
+                if not rag_query:
+                    st.warning("Enter a description to search for matching courses.")
+                else:
+                    with st.spinner("Ranking best-fit courses..."):
+                        st.session_state.ai_course_hits = get_reranked_courses(rag_query, limit=rag_limit)
+        with cols[1]:
+            if st.button("Clear AI results", key="rag_clear_btn", use_container_width=True):
+                st.session_state.ai_course_hits = None
+        if st.session_state.ai_course_hits:
+            render_course_hits(st.session_state.ai_course_hits)
 
     # ── Filters
     with st.container():

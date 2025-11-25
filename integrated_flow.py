@@ -4,7 +4,7 @@ The output from student analysis becomes the input query for course recommendati
 """
 
 from student_ingest import make_student_analysis
-from course_ingest import process_course_query
+from course_ingest import process_course_query, get_reranked_courses
 
 def run_integrated_flow(student_name: str, student_question: str = "Answer with which Degree, Course Specialization to consider keeping in mind my Academic, Co-curricular and Extracurricular Profile."):
     """
@@ -37,6 +37,7 @@ def run_integrated_flow(student_name: str, student_question: str = "Answer with 
     
     # Use student analysis as input for course ingest agent
     course_recommendations = process_course_query(student_analysis)
+    course_hits = get_reranked_courses(student_analysis, limit=6)
     
     print("\n" + "=" * 80)
     print("INTEGRATION COMPLETE")
@@ -44,7 +45,8 @@ def run_integrated_flow(student_name: str, student_question: str = "Answer with 
     
     return {
         "student_analysis": student_analysis,
-        "course_recommendations": course_recommendations
+        "course_recommendations": course_recommendations,
+        "course_hits": course_hits,
     }
 
 
@@ -59,3 +61,7 @@ if __name__ == "__main__":
     print(f"Student Profile Analysis: {result['student_analysis']}")
     print("-" * 80)
     print(f"Course Recommendations: {result['course_recommendations']}")
+    print("-" * 80)
+    print("Top Course Hits:")
+    for hit in result["course_hits"]:
+        print(f"- {hit['course_id']} ({hit.get('score')}) -> {hit.get('url')}")

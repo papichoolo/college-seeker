@@ -6,6 +6,13 @@ VECTOR DB -> NOSQL (MONOGO) DATABASE (COLLECTION NAME: COURSES)
 TOPICS SURROUNDING THE SOLUTION
 FULL-TEXT SEARCH, HYBRID-SEARCH
 
+
+-Collection Name :User 
+This will be per user collection that will store all relavant student data together
+This collection will be an index of all student-id.
+This means that every student's document will be given a StudentID,
+StudentID will be a one-to-many relationship
+
 - Adding Website/Portfolio/Social Media Integration for Student Information.
 WHAT TO DO?
 Look into better Webscraping/Browser Automation Pipeline 
